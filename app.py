@@ -1,29 +1,34 @@
 # app.py pour la Raspberry Pi
 from flask import Flask, Response
 import io
-import picamera
+from picamera2 import Picamera2
 import time
 import threading
 import socket
+import numpy as np
+import cv2
 
 app = Flask(__name__)
 
-# Configuration de la caméra
-camera = picamera.PiCamera()
-camera.resolution = (640, 480)
-camera.framerate = 24
-camera.rotation = 0
+# Configuration de la caméra avec Picamera2
+camera = Picamera2()
+camera_config = camera.create_preview_configuration(main={"size": (640, 480)})
+camera.configure(camera_config)
+camera.start()
 
-# Buffer pour stocker les images
-output = io.BytesIO()
+# Fonction pour capturer une image et la convertir en JPEG
+def capture_jpeg():
+    frame = camera.capture_array()
+    # Convertir en BGR (si nécessaire) puis en JPEG
+    if len(frame.shape) == 2:  # Si l'image est en niveaux de gris
+        frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+    _, buffer = cv2.imencode('.jpg', frame)
+    return buffer.tobytes()
 
 # Fonction pour générer le flux vidéo
 def generate_frames():
     while True:
-        output.seek(0)
-        output.truncate()
-        camera.capture(output, format='jpeg', use_video_port=True)
-        frame = output.getvalue()
+        frame = capture_jpeg()
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
@@ -36,7 +41,15 @@ def video_feed():
 # Page d'accueil
 @app.route('/')
 def index():
-    ip = socket.gethostbyname(socket.gethostname())
+    # Tentative d'obtenir l'adresse IP locale
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+    except:
+        ip = "localhost"
+        
     return f"""
     <html>
       <head>
@@ -51,8 +64,18 @@ def index():
     """
 
 if __name__ == '__main__':
-    # Obtenir l'adresse IP de la Raspberry Pi
-    ip = socket.gethostbyname(socket.gethostname())
+    # Attendre que la caméra s'initialise
+    time.sleep(2)
+    
+    # Tentative d'obtenir l'adresse IP locale
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+    except:
+        ip = "localhost"
+        
     print(f"Serveur démarré sur http://{ip}:5000")
     # Démarrer le serveur Flask accessible depuis d'autres appareils sur le réseau
     app.run(host='0.0.0.0', port=5000, threaded=True)
