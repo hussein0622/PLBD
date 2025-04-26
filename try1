@@ -1,0 +1,39 @@
+from flask import Flask, render_template, redirect, url_for
+from picamera2 import Picamera2
+from datetime import datetime
+import os
+
+# Setup
+app = Flask(__name__)
+picam2 = Picamera2()
+picam2.configure(picam2.create_still_configuration())
+
+# Create folder for photos
+PHOTO_DIR = "static/photos"
+os.makedirs(PHOTO_DIR, exist_ok=True)
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/capture', methods=['POST'])
+def capture():
+    now = datetime.now()
+    filename = now.strftime("%Y%m%d_%H%M%S.jpg")
+    filepath = os.path.join(PHOTO_DIR, filename)
+    picam2.start()
+    picam2.capture_file(filepath)
+    picam2.stop()
+    return redirect(url_for('show_photo', filename=filename))
+
+@app.route('/photo/<filename>')
+def show_photo(filename):
+    return f"""
+    <h1>Captured Photo</h1>
+    <img src="/static/photos/{filename}" width="640">
+    <br><br>
+    <a href="/">Take another photo</a>
+    """
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)
